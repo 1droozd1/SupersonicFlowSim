@@ -187,7 +187,7 @@ class SupersonicFlowInteraction:
                 return 'shock_rarefaction'
             elif p_star < p1 and p_star > p2:
                 return 'rarefaction_shock'
-            elif p_star < p1 and p_star < p2:
+            else:
                 return 'rarefaction_rarefaction'
                 
         except Exception as e:
@@ -1768,10 +1768,11 @@ def plot_all_interaction_types(solver):
             'theta1': np.radians(0), 'theta2': np.radians(30)
         }, 'rarefaction-shock'),
           ("г: shock-rarefaction", {
-            'M1': 2.0, 'M2': 1.2,
-            'p1': 1.0, 'p2': 1.0,
-            'rho1': 1.0, 'rho2': 1.0,
-            'theta1': np.radians(20), 'theta2': np.radians(0)
+            'M1': 3.0, 'M2': 3.5,
+            'p1': 2.0, 'p2': 2.5,
+            'rho1': 1.0, 'rho2': 1.2,
+            'theta1': np.radians(20),
+            'theta2': np.radians(-20)
         }, 'shock_rarefaction'),
         ("д: rarefaction-rarefaction (вакуум)", {
             'M1': 1.5, 'M2': 1.5,

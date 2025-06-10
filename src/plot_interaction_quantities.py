@@ -67,8 +67,8 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         angle_min = -results['shock_angle_lower'] - margin
         angle_max = results['shock_angle_upper'] + margin
     elif interaction_type == 'shock_rarefaction':
-        angle_min = -results['rarefaction_angles_lower']['initial'] - margin
-        angle_max = results['shock_angle_upper'] + margin
+        angle_min = results['rarefaction_angles_lower']['initial'] + margin
+        angle_max = -results['shock_angle_upper'] - margin
     elif interaction_type == 'rarefaction_shock':
         angle_min = results['shock_angle_lower'] + margin
         angle_max = results['rarefaction_angles_upper']['final'] - margin
@@ -133,31 +133,32 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         
     elif interaction_type == 'shock_rarefaction':
         # Регионы для случая с ударной волной и волной разрежения
-        shock_angle_upper = results['shock_angle_upper']
-        rarefaction_angle_lower_initial = -results['rarefaction_angles_lower']['initial']
-        rarefaction_angle_lower_final = -results['rarefaction_angles_lower']['final']
+        shock_angle_upper = -results['shock_angle_upper']
+        rarefaction_angle_lower_initial = results['rarefaction_angles_lower']['initial']
+        rarefaction_angle_lower_final = results['rarefaction_angles_lower']['final']
+        print(np.degrees(rarefaction_angle_lower_initial), np.degrees(rarefaction_angle_lower_final), np.degrees(shock_angle_upper), contact_angle)
         
         # Регион 1: до ударной волны
-        mask1 = angles > shock_angle_upper
+        mask1 = angles < shock_angle_upper
         pressure[mask1] = results['p1']
         density[mask1] = results['rho1']
         c1 = np.sqrt(solver.gamma * results['p1'] / results['rho1'])
         velocity_magnitude[mask1] = results['M1'] * c1
         
         # Регион 2: между ударной волной и контактным разрывом
-        mask2 = (angles <= shock_angle_upper) & (angles > contact_angle)
+        mask2 = (angles >= shock_angle_upper) & (angles < contact_angle)
         pressure[mask2] = results['p_interface']
         density[mask2] = results['rho_upper']
         velocity_magnitude[mask2] = np.sqrt(results['u_upper']**2 + results['v_upper']**2)
         
         # Регион 3: между контактным разрывом и началом веера разрежения
-        mask3 = (angles <= contact_angle) & (angles > rarefaction_angle_lower_initial)
+        mask3 = (angles >= contact_angle) & (angles < rarefaction_angle_lower_initial)
         pressure[mask3] = results['p_interface']
         density[mask3] = results['rho_lower']
         velocity_magnitude[mask3] = np.sqrt(results['u_lower']**2 + results['v_lower']**2)
         
         # Регион 4: в веере разрежения
-        mask4 = (angles <= rarefaction_angle_lower_initial) & (angles > rarefaction_angle_lower_final)
+        mask4 = (angles >= rarefaction_angle_lower_initial) & (angles <= rarefaction_angle_lower_final)
         if np.any(mask4):
             # Значения на границах веера
             p_max = results['p_interface']
@@ -173,7 +174,7 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
             velocity_magnitude[mask4] = v_max * (1 - t) + v_min * t
         
         # Регион 5: после веера разрежения
-        mask5 = angles <= rarefaction_angle_lower_final
+        mask5 = angles >= rarefaction_angle_lower_final
         pressure[mask5] = results['p2']
         density[mask5] = results['rho2']
         c2 = np.sqrt(solver.gamma * results['p2'] / results['rho2'])
@@ -315,9 +316,9 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         ax.axvline(-np.degrees(results['shock_angle_lower']), color='r', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5, label='Контактный разрыв')
     elif interaction_type == 'shock_rarefaction':
-        ax.axvline(np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5, label='Ударная волна')
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5, label='Граница веера')
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(-np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5, label='Ударная волна')
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5, label='Граница веера')
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5, label='Контактный разрыв')
     elif interaction_type == 'rarefaction_shock':
         ax.axvline(np.degrees(results['rarefaction_angles_upper']['initial']), color='b', linestyle='--', alpha=0.5, label='Граница веера')
@@ -347,9 +348,9 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         ax.axvline(-np.degrees(results['shock_angle_lower']), color='r', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'shock_rarefaction':
-        ax.axvline(np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(-np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'rarefaction_shock':
         ax.axvline(np.degrees(results['rarefaction_angles_upper']['initial']), color='b', linestyle='--', alpha=0.5)
@@ -377,9 +378,9 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         ax.axvline(-np.degrees(results['shock_angle_lower']), color='r', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'shock_rarefaction':
-        ax.axvline(np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(-np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'rarefaction_shock':
         ax.axvline(np.degrees(results['rarefaction_angles_upper']['initial']), color='b', linestyle='--', alpha=0.5)
@@ -407,9 +408,9 @@ def plot_interaction_quantities(solver, results, radius=1.0, num_points=2000):
         ax.axvline(-np.degrees(results['shock_angle_lower']), color='r', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'shock_rarefaction':
-        ax.axvline(np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
-        ax.axvline(-np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(-np.degrees(results['shock_angle_upper']), color='r', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['initial']), color='b', linestyle='--', alpha=0.5)
+        ax.axvline(np.degrees(results['rarefaction_angles_lower']['final']), color='b', linestyle='--', alpha=0.5)
         ax.axvline(np.degrees(contact_angle), color='g', linestyle='-', alpha=0.5)
     elif interaction_type == 'rarefaction_shock':
         ax.axvline(np.degrees(results['rarefaction_angles_upper']['initial']), color='b', linestyle='--', alpha=0.5)
@@ -454,11 +455,11 @@ if __name__ == "__main__":
     
     # Тестовый случай
     params = {
-        'M1': 3.5, 'M2': 3.0,
-        'p1': 2.5, 'p2': 2.0,
-        'rho1': 1.2, 'rho2': 1.0,
-        'theta1': np.radians(-20),
-        'theta2': np.radians(20)
+        'M1': 3.0, 'M2': 3.5,
+        'p1': 2.0, 'p2': 2.5,
+        'rho1': 1.0, 'rho2': 1.2,
+        'theta1': np.radians(20),
+        'theta2': np.radians(-20)
     }
     
     # Решение задачи
