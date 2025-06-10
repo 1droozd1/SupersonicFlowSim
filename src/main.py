@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve
+from scipy.optimize import root_scalar
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Polygon
 import logging
@@ -120,6 +121,12 @@ class SupersonicFlowInteraction:
             # Добавляем углы наклона в результаты
             results['theta1'] = theta1
             results['theta2'] = theta2
+            results['p2'] = p2
+            results['p1'] = p1
+            results['rho1'] = rho1
+            results['rho2'] = rho2
+            results['M1'] = M1
+            results['M2'] = M2
             
             logger.info("Расчет успешно завершен")
             return results
@@ -182,16 +189,6 @@ class SupersonicFlowInteraction:
                 return 'rarefaction_shock'
             elif p_star < p1 and p_star < p2:
                 return 'rarefaction_rarefaction'
-            else:
-                # Если давление равно начальному, определяем тип по углам
-                if theta1 > 0 and theta2 < 0:
-                    return 'rarefaction_rarefaction'
-                elif theta1 > 0 and theta2 == 0:
-                    return 'shock_rarefaction'
-                elif theta1 == 0 and theta2 < 0:
-                    return 'rarefaction_shock'
-                else:
-                    return 'shock_shock'
                 
         except Exception as e:
             logger.error(f"Ошибка при определении типа взаимодействия: {str(e)}")
@@ -264,34 +261,40 @@ class SupersonicFlowInteraction:
                 logger.error(f"Ошибка в pressure_equation: {str(e)}")
                 return float('inf')
         
+        # Решение уравнения методом fsolve
         try:
-            # Решение уравнения методом fsolve с ограничениями
-            p_interface = fsolve(pressure_equation, p_guess, 
-                               full_output=True, 
-                               xtol=1e-8,
-                               maxfev=1000)[0][0]
+            p_interface = fsolve(pressure_equation, p_guess)[0]
+        except:
+            # Если fsolve не сходится, используем метод бисекции
+            p_min = max(p1, p2)
+            p_max = min(p_max1, p_max2)
+            tolerance = 1e-6
+            max_iter = 100
             
-            # Проверка физической реализуемости результата
-            if p_interface <= max(p1, p2):
-                logger.warning(f"Давление на контактном разрыве ({p_interface:.2f}) меньше начального ({max(p1, p2):.2f})")
-                p_interface = max(p1, p2) * 1.1
+            for _ in range(max_iter):
+                p_mid = (p_min + p_max) / 2
+                f_mid = pressure_equation(p_mid)
                 
-            if p_interface > min(p_max1, p_max2):
-                logger.warning(f"Давление на контактном разрыве ({p_interface:.2f}) превышает максимально возможное ({min(p_max1, p_max2):.2f})")
-                p_interface = min(p_max1, p_max2) * 0.99
-                
-            logger.debug(f"Найдено давление на контактном разрыве: {p_interface:.2f}")
-            
-        except Exception as e:
-            logger.error(f"Ошибка при решении уравнения давления: {str(e)}")
-            # Используем безопасное значение
-            p_interface = max(p1, p2) * 1.1
+                if abs(f_mid) < tolerance:
+                    p_interface = p_mid
+                    break
+                    
+                if f_mid > 0:
+                    p_max = p_mid
+                else:
+                    p_min = p_mid
+            else:
+                p_interface = (p_min + p_max) / 2
         
         # Расчет остальных параметров
         try:
             # Вычисление углов ударных волн
             shock_angle_upper = self._calculate_shock_angle(M1, p_interface, p1)
             shock_angle_lower = self._calculate_shock_angle(M2, p_interface, p2)
+            
+            # Расчет углов отклонения потока
+            delta1 = self._calculate_flow_deflection_shock(M1, p_interface, p1)
+            delta2 = self._calculate_flow_deflection_shock(M2, p_interface, p2)
             
             # Расчет плотностей
             rho_n_minus = self._calculate_density_shock(p_interface, p1, rho1, M1)
@@ -325,7 +328,9 @@ class SupersonicFlowInteraction:
             'shock_angle_upper': shock_angle_upper,
             'shock_angle_lower': shock_angle_lower,
             'theta1': theta1,
-            'theta2': theta2
+            'theta2': theta2,
+            'delta1': delta1,
+            'delta2': delta2
         }
     
     def _solve_shock_rarefaction(self, M1, M2, p1, p2, rho1, rho2, theta1, theta2):
@@ -381,6 +386,10 @@ class SupersonicFlowInteraction:
         # Вычисление углов для веера волн разрежения
         rarefaction_angles_lower = self._calculate_rarefaction_angles(M2, p_interface, p2)
         
+        # Расчет углов отклонения потока
+        delta1 = self._calculate_flow_deflection_shock(M1, p_interface, p1)
+        delta2 = self._calculate_flow_deflection_rarefaction(M2, p_interface, p2)
+        
         return {
             'interaction_type': 'shock_rarefaction',
             'p_interface': p_interface,
@@ -392,7 +401,11 @@ class SupersonicFlowInteraction:
             'u_lower': u_n_plus,
             'v_lower': v_n_plus,
             'shock_angle_upper': shock_angle_upper,
-            'rarefaction_angles_lower': rarefaction_angles_lower
+            'rarefaction_angles_lower': rarefaction_angles_lower,
+            'theta1': theta1,
+            'theta2': theta2,
+            'delta1': delta1,
+            'delta2': delta2
         }
     
     def _solve_rarefaction_shock(self, M1, M2, p1, p2, rho1, rho2, theta1, theta2):
@@ -450,6 +463,10 @@ class SupersonicFlowInteraction:
         # Расчет угла ударной волны
         shock_angle_lower = self._calculate_shock_angle(M2, p_interface, p2)
         
+        # Расчет углов отклонения потока
+        delta1 = self._calculate_flow_deflection_rarefaction(M1, p_interface, p1)
+        delta2 = self._calculate_flow_deflection_shock(M2, p_interface, p2)
+        
         return {
             'interaction_type': 'rarefaction_shock',
             'p_interface': p_interface,
@@ -463,7 +480,9 @@ class SupersonicFlowInteraction:
             'rarefaction_angles_upper': rarefaction_angles_upper,
             'shock_angle_lower': shock_angle_lower,
             'theta1': theta1,
-            'theta2': theta2
+            'theta2': theta2,
+            'delta1': delta1,
+            'delta2': delta2
         }
     
     def _solve_rarefaction_rarefaction(self, M1, M2, p1, p2, rho1, rho2, theta1, theta2):
@@ -471,73 +490,27 @@ class SupersonicFlowInteraction:
         Решение задачи для случая с двумя волнами разрежения (рис. 2д в статье).
         """
         # Начальное приближение для давления в области взаимодействия
+        p_min = 1e-8
+        p_max = min(p1, p2) - 1e-8
         p_guess = (p1 + p2) / 2
-        
+
         def pressure_equation(p):
-            beta1 = 1.0
-            beta2 = 1.0
-            
-            # Для волны разрежения (верхний поток)
-            # Защита от деления на ноль и отрицательных значений под корнем
-            denom1 = rho1 * M1**2 + p1 - p
-            if denom1 <= 0:
-                return float('inf')
-            
-            sqrt_term1 = 2 * self.gamma * M1**2 * p1 / ((self.gamma - 1) * p1 + (self.gamma + 1) * p) - 1
-            if sqrt_term1 < 0:
+            """
+            Уравнение для определения давления на контактном разрыве.
+            """
+            # Проверка физической реализуемости
+            if p <= 0:
                 return float('inf')
                 
-            gamma_j1 = denom1**(-1) * np.sqrt(sqrt_term1)
-            alpha_n_minus = gamma_j1 * beta1
+            # Расчет углов отклонения потока
+            delta1 = self._calculate_flow_deflection_shock(M1, p, p1) if p > p1 else self._calculate_flow_deflection_rarefaction(M1, p, p1)
+            delta2 = self._calculate_flow_deflection_shock(M2, p, p2) if p > p2 else self._calculate_flow_deflection_rarefaction(M2, p, p2)
             
-            # Для волны разрежения (нижний поток)
-            denom2 = rho2 * M2**2 + p2 - p
-            if denom2 <= 0:
-                return float('inf')
-                
-            sqrt_term2 = 2 * self.gamma * M2**2 * p2 / ((self.gamma - 1) * p2 + (self.gamma + 1) * p) - 1
-            if sqrt_term2 < 0:
-                return float('inf')
-                
-            gamma_j2 = denom2**(-1) * np.sqrt(sqrt_term2)
-            alpha_n_plus = gamma_j2 * beta2
-            
-            # Приближенное вычисление ξ
-            xi_n_minus = np.tan(theta1)
-            xi_n_plus = np.tan(theta2)
-            
-            # Расчет по формуле (3.6)
-            term1 = beta1 * xi_n_minus - beta2 * xi_n_plus
-            term2 = alpha_n_minus * (p - p1) - alpha_n_plus * (p - p2)
-            return term1 + term2
+            # Уравнение баланса углов
+            return np.tan(theta1 + delta1) - np.tan(theta2 + delta2)
         
         # Решение уравнения методом fsolve с дополнительными параметрами
-        try:
-            p_interface = fsolve(pressure_equation, p_guess, 
-                               full_output=True, 
-                               xtol=1e-8,
-                               maxfev=1000)[0][0]
-        except:
-            # Если fsolve не сходится, используем метод бисекции
-            p_min = min(p1, p2) * 0.5
-            p_max = max(p1, p2) * 2.0
-            tolerance = 1e-6
-            max_iter = 100
-            
-            for _ in range(max_iter):
-                p_mid = (p_min + p_max) / 2
-                f_mid = pressure_equation(p_mid)
-                
-                if abs(f_mid) < tolerance:
-                    p_interface = p_mid
-                    break
-                    
-                if f_mid > 0:
-                    p_max = p_mid
-                else:
-                    p_min = p_mid
-            else:
-                p_interface = (p_min + p_max) / 2
+        p_interface = fsolve(pressure_equation, p_guess)[0]
         
         # Расчет остальных параметров
         xi_interface = self._calculate_xi_interface(p_interface, M1, M2, p1, p2, rho1, rho2, theta1, theta2,
@@ -552,6 +525,10 @@ class SupersonicFlowInteraction:
         rarefaction_angles_upper = self._calculate_rarefaction_angles(M1, p_interface, p1)
         rarefaction_angles_lower = self._calculate_rarefaction_angles(M2, p_interface, p2)
         
+        # Расчет углов отклонения потока
+        delta1 = self._calculate_flow_deflection_rarefaction(M1, p_interface, p1)
+        delta2 = self._calculate_flow_deflection_rarefaction(M2, p_interface, p2)
+        
         return {
             'interaction_type': 'rarefaction_rarefaction',
             'p_interface': p_interface,
@@ -565,7 +542,9 @@ class SupersonicFlowInteraction:
             'rarefaction_angles_upper': rarefaction_angles_upper,
             'rarefaction_angles_lower': rarefaction_angles_lower,
             'theta1': theta1,
-            'theta2': theta2
+            'theta2': theta2,
+            'delta1': delta1,
+            'delta2': delta2
         }
     
     def _calculate_xi_interface(self, p, M1, M2, p1, p2, rho1, rho2, theta1, theta2, 
@@ -1722,6 +1701,35 @@ class SupersonicFlowInteraction:
         if vmax is None:
             vmax = np.nanmax(field)
         return (field - vmin) / (vmax - vmin)
+    
+    def _calculate_contact_angle(self, results):
+        """
+        Вычисление угла контактного разрыва на основе результатов расчета.
+        
+        Параметры:
+        ----------
+        results : dict
+            Словарь с результатами расчета
+            
+        Возвращает:
+        -----------
+        float
+            Угол контактного разрыва в радианах
+        """
+        # Получаем углы отклонения потока
+        delta1 = results.get('delta1', 0.0)
+        delta2 = results.get('delta2', 0.0)
+        
+        # Получаем начальные углы наклона векторов скорости
+        theta1 = results.get('theta1', 0.0)
+        theta2 = results.get('theta2', 0.0)
+        
+        # Вычисляем углы наклона векторов скорости после волн
+        angle1 = theta1 + delta1
+        angle2 = theta2 + delta2
+        
+        # Угол контактного разрыва - среднее значение углов наклона векторов скорости
+        return (angle1 + angle2) / 2
 
 def is_valid_result(results):
     keys = ['u_upper', 'v_upper', 'u_lower', 'v_lower']
